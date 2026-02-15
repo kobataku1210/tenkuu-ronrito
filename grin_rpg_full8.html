@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>グリンと 不思議な 空の塔</title>
+
+<style>
+body{
+  margin:0;
+  font-family:sans-serif;
+  background:linear-gradient(#a8e6ff,#d0ffd6);
+}
+
+h1{
+  text-align:center;
+  color:#2e8b57;
+}
+
+#gameArea{
+  display:flex;
+  justify-content:center;
+  gap:40px;
+  margin-top:10px;
+  flex-wrap:wrap;
+}
+
+#leftPanel{
+  width:260px;
+  text-align:center;
+}
+
+#grinImg{
+  width:200px;
+  transition:0.3s;
+}
+
+#status{
+  font-size:20px;
+  margin-top:10px;
+}
+
+#rightPanel{
+  min-width:300px;
+}
+
+.grid{
+ display:grid;
+ gap:5px;
+ justify-content:center;
+ margin:20px auto;
+}
+
+.cell{
+ width:60px;
+ height:60px;
+ font-size:22px;
+ border:2px solid black;
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ cursor:pointer;
+ background:white;
+}
+
+.cell.selected{
+ border:3px solid red;
+}
+
+button{
+ margin:6px;
+ padding:8px 16px;
+ font-size:14px;
+ border-radius:20px;
+ border:none;
+ background:#ffcc66;
+ cursor:pointer;
+}
+
+/* ダメージ演出 */
+.damage{
+  animation:shake 0.4s;
+  filter:brightness(1.2) saturate(2) hue-rotate(-20deg);
+}
+
+@keyframes shake{
+  0%{transform:translateX(0);}
+  25%{transform:translateX(-10px);}
+  50%{transform:translateX(10px);}
+  75%{transform:translateX(-10px);}
+  100%{transform:translateX(0);}
+}
+
+/* 瀕死演出 */
+#dangerOverlay{
+  position:fixed;
+  inset:0;
+  background:red;
+  opacity:0;
+  pointer-events:none;
+}
+
+.dangerActive{
+  animation:pulse 1s infinite;
+}
+
+@keyframes pulse{
+  0%{opacity:0.1;}
+  50%{opacity:0.3;}
+  100%{opacity:0.1;}
+}
+
+/* ゲームオーバー画面 */
+#gameOverScreen{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.7);
+  display:none;
+  align-items:center;
+  justify-content:center;
+}
+
+#gameOverBox{
+  background:white;
+  padding:20px;
+  border-radius:15px;
+  text-align:center;
+  width:90%;
+  max-width:420px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="dangerOverlay"></div>
+
+<h1>🌿 グリンと 不思議な 空の塔 🌈</h1>
+
+<div id="gameArea">
+
+  <div id="leftPanel">
+    <img id="grinImg" src="grin.png">
+    <div id="status"></div>
+  </div>
+
+  <div id="rightPanel">
+    <div id="stageName" style="text-align:center;font-weight:bold;"></div>
+    <div class="grid" id="grid"></div>
+    <button onclick="checkAnswer()">解答（Enter）</button>
+  </div>
+
+</div>
+
+<div id="message" style="text-align:center;font-size:18px;"></div>
+
+<!-- ゲームオーバー -->
+<div id="gameOverScreen">
+  <div id="gameOverBox">
+    <div style="font-size:36px;">😵</div>
+    <div style="font-size:24px;font-weight:bold;">ゲームオーバー</div>
+    <p>グリンは力尽きた…</p>
+    <button onclick="restartGame()">最初から</button>
+    <button onclick="payToKobayashi()">課金（小林先生にお金を渡す）</button>
+  </div>
+</div>
+
+<script>
+
+let HP = 5;
+let stageIndex = 0;
+let isGameOver = false;
+
+const stages = [
+
+{ name:"ステージ１", size:3, correct:[[3,2,1],[1,3,2],[2,1,3]] },
+{ name:"ステージ２", size:3, correct:[[3,2,1],[1,3,2],[2,1,3]] },
+{ name:"ステージ３", size:3, correct:[[3,1,2],[2,3,1],[1,2,3]] },
+{ name:"ステージ４", size:3, correct:[[3,1,2],[2,3,1],[1,2,3]] },
+{ name:"ステージ５", size:4, correct:[[2,3,1,4],[1,4,2,3],[3,1,4,2],[4,2,3,1]] },
+{ name:"ステージ６", size:4, correct:[[2,4,1,3],[1,3,4,2],[4,2,3,1],[3,1,2,4]] },
+{ name:"ステージ７", size:6, correct:[[1,2,3,4,5,6],[5,4,6,1,3,2],[2,3,4,5,6,1],[3,1,5,6,2,4],[4,6,2,3,1,5],[6,5,1,2,4,3]] },
+{ name:"最終ステージ", size:6, correct:[[1,3,6,2,5,4],[6,2,5,1,4,3],[5,1,4,6,3,2],[4,6,3,5,2,1],[3,5,2,4,1,6],[2,4,1,3,6,5]] }
+
+];
+
+let user=[];
+let selectedRow=0;
+let selectedCol=0;
+
+const grid=document.getElementById("grid");
+const statusDiv=document.getElementById("status");
+const messageDiv=document.getElementById("message");
+const stageNameDiv=document.getElementById("stageName");
+
+function updateStatus(){
+ let hearts="";
+ for(let i=0;i<HP;i++) hearts+="❤️";
+ statusDiv.innerHTML="ライフ："+hearts;
+
+ const grin=document.getElementById("grinImg");
+ const overlay=document.getElementById("dangerOverlay");
+
+ if(HP>=4){
+   grin.src="grin.png";
+   overlay.classList.remove("dangerActive");
+ }
+ else if(HP>=2){
+   grin.src="grin_sad.png";
+   overlay.classList.remove("dangerActive");
+ }
+ else{
+   grin.src="grin_weak.png";
+   overlay.classList.add("dangerActive");
+ }
+}
+
+function loadStage(){
+ if(stageIndex>=stages.length){
+   messageDiv.textContent="🏆 グリンと不思議な塔 制覇！";
+   return;
+ }
+
+ const stage=stages[stageIndex];
+ stageNameDiv.textContent=stage.name;
+
+ grid.innerHTML="";
+ user=[];
+ grid.style.gridTemplateColumns=`repeat(${stage.size},60px)`;
+
+ for(let r=0;r<stage.size;r++){
+  user[r]=[];
+  for(let c=0;c<stage.size;c++){
+   user[r][c]=0;
+   const div=document.createElement("div");
+   div.className="cell";
+   div.id=`cell-${r}-${c}`;
+   div.onclick=()=>selectCell(r,c);
+   grid.appendChild(div);
+  }
+ }
+
+ selectCell(0,0);
+ updateStatus();
+ messageDiv.textContent="グリンは 塔を 登っている！";
+}
+
+function selectCell(r,c){
+ document.querySelectorAll(".cell").forEach(cell=>cell.classList.remove("selected"));
+ selectedRow=r;
+ selectedCol=c;
+ document.getElementById(`cell-${r}-${c}`).classList.add("selected");
+}
+
+document.addEventListener("keydown",function(e){
+ if(isGameOver) return;
+
+ const size=stages[stageIndex].size;
+
+ if(e.key>="1" && e.key<=size){
+  user[selectedRow][selectedCol]=Number(e.key);
+  document.getElementById(`cell-${selectedRow}-${selectedCol}`).textContent=e.key;
+ }
+
+ if(e.key==="Backspace"){
+  user[selectedRow][selectedCol]=0;
+  document.getElementById(`cell-${selectedRow}-${selectedCol}`).textContent="";
+ }
+
+ if(e.key==="ArrowUp" && selectedRow>0) selectCell(selectedRow-1,selectedCol);
+ if(e.key==="ArrowDown" && selectedRow<size-1) selectCell(selectedRow+1,selectedCol);
+ if(e.key==="ArrowLeft" && selectedCol>0) selectCell(selectedRow,selectedCol-1);
+ if(e.key==="ArrowRight" && selectedCol<size-1) selectCell(selectedRow,selectedCol+1);
+
+ if(e.key==="Enter") checkAnswer();
+});
+
+function checkAnswer(){
+ const correct=stages[stageIndex].correct;
+
+ for(let r=0;r<correct.length;r++){
+  for(let c=0;c<correct.length;c++){
+   if(user[r][c]!==correct[r][c]){
+    takeDamage();
+    messageDiv.textContent="ダメージを受けた";
+    return;
+   }
+  }
+ }
+
+ messageDiv.textContent="正解！";
+ stageIndex++;
+ setTimeout(loadStage,800);
+}
+
+function takeDamage(){
+ HP--;
+
+ const grin=document.getElementById("grinImg");
+ grin.classList.add("damage");
+ setTimeout(()=>grin.classList.remove("damage"),400);
+
+ if(HP<=0){
+   showGameOver();
+ }
+
+ updateStatus();
+}
+
+function showGameOver(){
+ isGameOver=true;
+ document.getElementById("gameOverScreen").style.display="flex";
+}
+
+function restartGame(){
+ location.reload();
+}
+
+function payToKobayashi(){
+ HP=5;
+ isGameOver=false;
+ document.getElementById("gameOverScreen").style.display="none";
+ updateStatus();
+ loadStage();
+ messageDiv.textContent="復活。ライフ全回復。";
+}
+
+loadStage();
+
+</script>
+
+</body>
+</html>
